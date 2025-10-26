@@ -5,9 +5,9 @@ services:
     plan: free
     autoDeploy: true
     healthCheckPath: /health
-    # Build from the Dockerfile located in the server/ subdirectory
-    dockerfilePath: server/Dockerfile
-    rootDir: server
+  # Build from Dockerfile inside the server/ subdirectory
+  rootDir: server
+  dockerfilePath: Dockerfile
     envVars:
       - key: OPENAI_API_KEY
         sync: false
