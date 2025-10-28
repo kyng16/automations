@@ -16,8 +16,22 @@ void main(List<String> args) async {
   }
 
   final router = Router()
+    ..get('/', (Request req) async {
+      return Response.ok(
+        jsonEncode({
+          'status': 'ok',
+          'message': 'AutoEmotion server is running. Use GET /health or POST /chat.'
+        }),
+        headers: {'Content-Type': 'application/json'},
+      );
+    })
     ..get('/health', (Request req) async {
       return Response.ok(jsonEncode({'status': 'ok'}), headers: {'Content-Type': 'application/json'});
+    })
+    ..get('/chat', (Request req) async {
+      return Response(405,
+          body: jsonEncode({'error': 'Method Not Allowed. Use POST /chat with JSON body {prompt|messages}.'}),
+          headers: {'Content-Type': 'application/json'});
     })
     ..post('/chat', (Request req) async {
       if (apiKey.isEmpty) {
@@ -32,18 +46,29 @@ void main(List<String> args) async {
         return Response(400, body: jsonEncode({'error': 'Invalid JSON body'}), headers: {'Content-Type': 'application/json'});
       }
 
-      final prompt = (body['prompt'] ?? '').toString().trim();
       final model = (body['model'] ?? 'gpt-4o-mini').toString();
-      final system = (body['system'] ?? '').toString().trim();
-      if (prompt.isEmpty) {
-        return Response(400, body: jsonEncode({'error': 'Missing "prompt"'}), headers: {'Content-Type': 'application/json'});
-      }
+      final temperature = (body['temperature'] is num) ? (body['temperature'] as num).toDouble() : 0.7;
 
-      final messages = <Map<String, String>>[];
-      if (system.isNotEmpty) {
-        messages.add({'role': 'system', 'content': system});
+      // accept either full messages array or a single prompt + optional system
+      List<Map<String, String>> messages = [];
+      if (body['messages'] is List) {
+        final raw = body['messages'] as List;
+        for (final m in raw) {
+          if (m is Map && m['role'] is String && m['content'] is String) {
+            messages.add({'role': m['role'] as String, 'content': m['content'] as String});
+          }
+        }
+      } else {
+        final prompt = (body['prompt'] ?? '').toString().trim();
+        final system = (body['system'] ?? '').toString().trim();
+        if (prompt.isEmpty) {
+          return Response(400, body: jsonEncode({'error': 'Missing "prompt"'}), headers: {'Content-Type': 'application/json'});
+        }
+        if (system.isNotEmpty) {
+          messages.add({'role': 'system', 'content': system});
+        }
+        messages.add({'role': 'user', 'content': prompt});
       }
-      messages.add({'role': 'user', 'content': prompt});
 
       try {
         final res = await http.post(
@@ -55,7 +80,7 @@ void main(List<String> args) async {
           body: jsonEncode({
             'model': model,
             'messages': messages,
-            'temperature': 0.7,
+            'temperature': temperature,
           }),
         );
 
