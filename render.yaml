@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: autoemotion-server
+    env: docker
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /health
+    # Build using Dockerfile inside the server/ subdirectory (default name)
+    rootDir: server
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+    buildFilter:
+      paths:
+        - server/**
+        - render.yaml
