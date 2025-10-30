@@ -286,8 +286,9 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Future<void> _startListening() async {
     if (!_isConfigured) {
+      // For local STT we don't need proxy, but keep prompt to set proxy for chat/emotion.
       _editApiBaseUrl();
-      return;
+      // Continue; speech_to_text does not require server.
     }
     setState(() {
       _listening = true;
@@ -297,20 +298,14 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> _stopListening() async {
-    final rec = await _voice.stop();
+    final transcript = await _voice.stop();
     if (!mounted) return;
     setState(() => _listening = false);
-    if (rec == null) return;
-    try {
-      final transcript = await _openAI.transcribeAudio(bytes: rec.bytes, filename: rec.filename);
-      if (!mounted) return;
-      _controller.text = transcript;
-      _controller.selection = TextSelection.fromPosition(TextPosition(offset: _controller.text.length));
-      if (transcript.trim().isNotEmpty && !_sending) {
-        await _send();
-      }
-    } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+    if (transcript == null) return;
+    _controller.text = transcript;
+    _controller.selection = TextSelection.fromPosition(TextPosition(offset: _controller.text.length));
+    if (transcript.trim().isNotEmpty && !_sending) {
+      await _send();
     }
   }
 

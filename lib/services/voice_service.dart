@@ -1,37 +1,57 @@
-import 'dart:io';
-import 'dart:typed_data';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 
-import 'package:record/record.dart';
-
+/// VoiceService based on native speech recognition (speech_to_text).
+/// No OpenAI key required; results are recognized on-device/OS service.
 class VoiceService {
-  VoiceService() : _rec = AudioRecorder();
+  VoiceService() : _stt = stt.SpeechToText();
 
-  final AudioRecorder _rec;
+  final stt.SpeechToText _stt;
+  String _lastText = '';
+  bool _available = false;
+
+  Future<bool> _ensureInit() async {
+    if (_available) return true;
+    _available = await _stt.initialize(
+      onError: (e) {
+        // Optionally log
+      },
+      onStatus: (s) {
+        // Optionally log
+      },
+    );
+    return _available;
+  }
 
   Future<bool> hasPermission() async {
-    return await _rec.hasPermission();
+    return await _ensureInit();
   }
 
-  Future<void> start() async {
-    if (!await _rec.hasPermission()) return;
-    final dir = Directory.systemTemp;
-    final path = dir.path + Platform.pathSeparator + 'rec_${DateTime.now().millisecondsSinceEpoch}.m4a';
-    await _rec.start(const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 128000, sampleRate: 44100), path: path);
+  Future<void> start({String localeId = 'pl_PL'}) async {
+    _lastText = '';
+    if (!await _ensureInit()) return;
+    await _stt.listen(
+      localeId: localeId,
+      onResult: (result) {
+        _lastText = result.recognizedWords;
+      },
+      listenMode: stt.ListenMode.confirmation,
+      partialResults: true,
+    );
   }
 
-  Future<({Uint8List bytes, String filename})?> stop() async {
-    final path = await _rec.stop();
-    if (path == null) return null;
-    final file = File(path);
-    if (!await file.exists()) return null;
-    final bytes = await file.readAsBytes();
-    final filename = path.split(Platform.pathSeparator).last;
-    return (bytes: bytes, filename: filename);
+  /// Stops listening and returns the final recognized text (or null if none).
+  Future<String?> stop() async {
+    if (_stt.isListening) {
+      await _stt.stop();
+    }
+    final text = _lastText.trim();
+    return text.isEmpty ? null : text;
   }
 
   Future<void> cancel() async {
-    if (await _rec.isRecording()) {
-      await _rec.cancel();
+    if (_stt.isListening) {
+      await _stt.cancel();
     }
+    _lastText = '';
   }
 }
