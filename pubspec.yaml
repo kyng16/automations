@@ -37,7 +37,7 @@ dependencies:
   http: ^1.2.2
   shared_preferences: ^2.3.2
   record: ^6.1.2
-  speech_to_text: ^6.6.0
+  speech_to_text: ^7.3.0
 
 dependency_overrides:
   # Try to let record bring the correct linux implementation; no overrides needed
