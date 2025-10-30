@@ -1,0 +1,32 @@
+name: Render Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for deploy'
+        required: false
+  push:
+    branches:
+      - autoemotion
+    paths:
+      - 'server/**'
+      - 'render.yaml'
+
+jobs:
+  trigger-deploy:
+    name: Trigger Render Deploy Hook
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check deploy hook
+        run: |
+          if [ -z "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
+            echo "RENDER_DEPLOY_HOOK_URL secret is not set. Add it in GitHub repo settings -> Secrets and variables -> Actions." >&2
+            exit 1
+          fi
+      - name: Call Deploy Hook
+        run: |
+          set -e
+          echo "Triggering Render deploy..."
+          curl -fsSL -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+          echo "Deploy hook triggered. Render will build from server/ (Dockerfile) per your service config."

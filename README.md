@@ -1,3 +1,30 @@
+### One-click redeploy via GitHub Actions (recommended)
+
+This repo includes a workflow at `.github/workflows/render-deploy.yml` that triggers a Render deploy using a Deploy Hook URL.
+
+Steps:
+
+1. In Render (Service → Settings → Deploy Hooks), copy the Deploy Hook URL.
+2. In GitHub (Repository → Settings → Secrets and variables → Actions), add secret:
+	- `RENDER_DEPLOY_HOOK_URL` = the hook URL from step 1
+3. Push changes or run the workflow manually (Actions → Render Deploy → Run workflow).
+
+The workflow posts to the hook; Render builds using the service’s configured settings. Make sure your service is configured to use Docker with:
+
+- Repository: `kyng16/automations`
+- Branch: `autoemotion`
+- Dockerfile path: `server/Dockerfile`
+- Build context/root directory: `server`
+- Health check path: `/health`
+- Environment: set `OPENAI_API_KEY` secret
+If your existing service was created before adding `/transcribe` and is showing 404 for `/transcribe`, it is likely building from the wrong context or an old image. Create a new service using the blueprint or switch the existing one to Docker with root directory `server`.
+
+### Verify deployment
+
+ GET `/` returns JSON mentioning `POST /transcribe` and a recent `version`
+If `/transcribe` is `404`, your service is serving an outdated build or the build context is not `server/`. Fix service settings or create a new service using the blueprint.
+
+Render free plan has cold starts. First request may take ~20–40s. The client app warms up `/health` automatically and uses longer timeouts.
 # autoemotion
 
 A new Flutter project.
