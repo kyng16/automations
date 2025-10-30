@@ -366,14 +366,18 @@ class OpenAIService {
   }) async {
     if (isProxy) {
       final uri = Uri.parse('${apiBaseUrl}/transcribe');
-      final res = await _client.post(
-        uri,
-        headers: {
-          'Content-Type': 'application/octet-stream',
-          'x-filename': filename,
-        },
-        body: bytes,
-      );
+      final res = await _client
+          .post(
+            uri,
+            headers: {
+              'Content-Type': 'application/octet-stream',
+              'Accept': 'application/json',
+              'x-filename': filename,
+            },
+            body: bytes,
+          )
+          // Cold starts + upload can take a while
+          .timeout(const Duration(seconds: 120));
       if (res.statusCode >= 200 && res.statusCode < 300) {
         final data = jsonDecode(res.body) as Map<String, dynamic>;
         return (data['text'] ?? '').toString();

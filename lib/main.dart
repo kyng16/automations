@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'models/chat_message.dart';
 import 'models/emotion_result.dart';
-import 'services/voice_service.dart';
+import 'services/audio_recorder.dart';
 
 void main() {
   runApp(const MyApp());
@@ -62,14 +62,14 @@ class _MyHomePageState extends State<MyHomePage> {
   String _selectedModel = 'gpt-4o-mini';
   bool _autoPrompted = false;
   final Map<int, EmotionResult> _emotions = {};
-  late final VoiceService _voice;
+  late final AudioRecorderService _recorder;
   bool _listening = false;
 
   @override
   void initState() {
     super.initState();
     _openAI = OpenAIService();
-  _voice = VoiceService();
+    _recorder = AudioRecorderService();
     _loadSavedApiBase();
   }
 
@@ -108,8 +108,20 @@ class _MyHomePageState extends State<MyHomePage> {
             _editApiBaseUrl();
           }
         });
+        // Try a silent warm-up ping to wake a cold server (Render free plan cold starts).
+        if (OpenAIService.isProxy) {
+          _warmUpProxy();
+        }
       }
     }
+  }
+
+  Future<void> _warmUpProxy() async {
+    try {
+      final client = http.Client();
+      await client.get(Uri.parse('${OpenAIService.apiBaseUrl}/health')).timeout(const Duration(seconds: 25));
+      client.close();
+    } catch (_) {/* ignore */}
   }
 
   bool get _isConfigured => OpenAIService.isProxy || OpenAIService.hasApiKey;
@@ -188,11 +200,18 @@ class _MyHomePageState extends State<MyHomePage> {
     String rTranscribe = '';
     final client = http.Client();
     try {
-      // GET /
+      // First try to warm up /health (cold start can take > 15s)
       try {
-        final res = await client.get(Uri.parse('$base/')).timeout(const Duration(seconds: 8));
+        final res = await client.get(Uri.parse('$base/health')).timeout(const Duration(seconds: 25));
+        rHealth = 'GET /health => ${res.statusCode}';
+      } catch (e) {
+        rHealth = 'GET /health => ERROR: $e';
+      }
+
+      // Then GET /
+      try {
+        final res = await client.get(Uri.parse('$base/')).timeout(const Duration(seconds: 25));
         rInfo = 'GET / => ${res.statusCode}${res.statusCode == 200 ? '' : ''}';
-        // Try to detect presence of transcribe route in root info
         if (res.statusCode == 200) {
           final body = res.body;
           if (body.contains('transcribe') || body.contains('POST /transcribe')) {
@@ -203,17 +222,9 @@ class _MyHomePageState extends State<MyHomePage> {
         rInfo = 'GET / => ERROR: $e';
       }
 
-      // GET /health
-      try {
-        final res = await client.get(Uri.parse('$base/health')).timeout(const Duration(seconds: 8));
-        rHealth = 'GET /health => ${res.statusCode}';
-      } catch (e) {
-        rHealth = 'GET /health => ERROR: $e';
-      }
-
       // GET /transcribe (should be 405 if route exists)
       try {
-        final res = await client.get(Uri.parse('$base/transcribe')).timeout(const Duration(seconds: 8));
+        final res = await client.get(Uri.parse('$base/transcribe')).timeout(const Duration(seconds: 25));
         rTranscribe = 'GET /transcribe => ${res.statusCode}${res.statusCode == 405 ? ' (OK: route present)' : res.statusCode == 404 ? ' (Not Found: brak trasy)' : ''}';
       } catch (e) {
         rTranscribe = 'GET /transcribe => ERROR: $e';
@@ -286,26 +297,49 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Future<void> _startListening() async {
     if (!_isConfigured) {
-      // For local STT we don't need proxy, but keep prompt to set proxy for chat/emotion.
+      // OpenAI STT wymaga serwera proxy – poproś o konfigurację i wyjdź
       _editApiBaseUrl();
-      // Continue; speech_to_text does not require server.
+      return;
     }
     setState(() {
       _listening = true;
       _error = '';
     });
-    await _voice.start();
+    // For OpenAI STT we record audio bytes via recorder (server-only transcription)
+    // Upewnij się, że system poprosi o dostęp do mikrofonu i zgoda jest nadana
+    final ok = await _recorder.hasPermission();
+    if (!ok) {
+      if (mounted) {
+        setState(() => _listening = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Brak uprawnień do mikrofonu – zezwól w ustawieniach, aby nagrywać.')),
+        );
+      }
+      return;
+    }
+    // Rozpocznij nagrywanie (błędy wewnętrzne są łapane w serwisie)
+    await _recorder.start();
   }
 
   Future<void> _stopListening() async {
-    final transcript = await _voice.stop();
+    final rec = await _recorder.stop();
     if (!mounted) return;
     setState(() => _listening = false);
-    if (transcript == null) return;
-    _controller.text = transcript;
-    _controller.selection = TextSelection.fromPosition(TextPosition(offset: _controller.text.length));
-    if (transcript.trim().isNotEmpty && !_sending) {
-      await _send();
+    if (rec == null) {
+      // Nagrywanie nie wystartowało lub zostało przerwane
+      setState(() => _error = 'Nie udało się nagrać audio (brak uprawnień lub przerwano).');
+      return;
+    }
+    try {
+      final transcript = await _openAI.transcribeAudio(bytes: rec.bytes, filename: rec.filename);
+      if (!mounted) return;
+      _controller.text = transcript;
+      _controller.selection = TextSelection.fromPosition(TextPosition(offset: _controller.text.length));
+      if (transcript.trim().isNotEmpty && !_sending) {
+        await _send();
+      }
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
     }
   }
 
